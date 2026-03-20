@@ -225,6 +225,8 @@ claude --dangerously-load-development-channels server:line
 
 成功啟動後，Claude Code 會自動連接 LINE MCP server 並開始監聽訊息。
 
+> **重要**：每次使用都必須加上 `--dangerously-load-development-channels server:line` 旗標啟動，LINE 訊息才會進入 session。直接執行 `claude` 不會收到 LINE 訊息。
+
 > **Windows 注意**：此指令需在一般終端機（PowerShell / CMD）執行，不能在 Claude Code 內部執行。
 
 ---
