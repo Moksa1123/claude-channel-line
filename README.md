@@ -1,75 +1,77 @@
 # LINE Channel for Claude Code
 
-透過 LINE Messaging API 將 LINE 訊息推送進 Claude Code session，讓 Claude 能即時接收並回覆你的 LINE 訊息。
+[繁體中文](README.zh-TW.md) | English
+
+Push LINE messages into your Claude Code session via the LINE Messaging API, so Claude can receive and reply to your LINE messages in real time.
 
 ---
 
-## 目錄
+## Table of Contents
 
-- [需求](#需求)
-- [事前準備](#事前準備)
-  - [安裝 Claude Code](#1-安裝-claude-code)
-  - [安裝 Bun](#2-安裝-bun)
-  - [安裝 ngrok](#3-安裝-ngrok)
-  - [建立 LINE Bot](#4-建立-line-bot)
-- [安裝與設定](#安裝與設定)
-  - [Clone 專案](#1-clone-專案)
-  - [儲存 LINE 憑證](#2-儲存-line-憑證)
-  - [加入 MCP Server](#3-加入-mcp-server)
-  - [啟動 ngrok](#4-啟動-ngrok)
-  - [設定 LINE Webhook](#5-設定-line-webhook)
-  - [啟動 Claude Code](#6-啟動-claude-code)
-  - [配對 LINE 帳號](#7-配對-line-帳號)
-- [新增其他使用者](#新增其他使用者)
-- [Access Policy 說明](#access-policy-說明)
-- [環境變數](#環境變數)
-- [常見問題](#常見問題)
+- [Requirements](#requirements)
+- [Prerequisites](#prerequisites)
+  - [Install Claude Code](#1-install-claude-code)
+  - [Install Bun](#2-install-bun)
+  - [Install ngrok](#3-install-ngrok)
+  - [Create a LINE Bot](#4-create-a-line-bot)
+- [Setup](#setup)
+  - [Clone the repository](#1-clone-the-repository)
+  - [Save LINE credentials](#2-save-line-credentials)
+  - [Add MCP Server](#3-add-mcp-server)
+  - [Start ngrok](#4-start-ngrok)
+  - [Configure LINE Webhook](#5-configure-line-webhook)
+  - [Start Claude Code](#6-start-claude-code)
+  - [Pair your LINE account](#7-pair-your-line-account)
+- [Adding more users](#adding-more-users)
+- [Access Policy](#access-policy)
+- [Environment Variables](#environment-variables)
+- [Troubleshooting](#troubleshooting)
 
 ---
 
-## 需求
+## Requirements
 
-- **作業系統**：Windows / macOS / Linux
-- **Claude Code** v2.1.80 以上，以 claude.ai 帳號登入（非 API key）
+- **OS**: Windows / macOS / Linux
+- **Claude Code** v2.1.80+, signed in with a claude.ai account (not API key)
 - **Bun** runtime
-- **ngrok** 帳號（免費方案即可）
-- **LINE Developers** 帳號（免費）
+- **ngrok** account (free tier works)
+- **LINE Developers** account (free)
 
 ---
 
-## 事前準備
+## Prerequisites
 
-### 1. 安裝 Claude Code
+### 1. Install Claude Code
 
 ```bash
 npm install -g @anthropic-ai/claude-code
 ```
 
-安裝完後登入：
+Then sign in:
 
 ```bash
 claude
 ```
 
-依畫面指示以 claude.ai 帳號登入。
+Follow the prompts to sign in with your claude.ai account.
 
 ---
 
-### 2. 安裝 Bun
+### 2. Install Bun
 
-**macOS / Linux：**
+**macOS / Linux:**
 
 ```bash
 curl -fsSL https://bun.sh/install | bash
 ```
 
-**Windows（PowerShell）：**
+**Windows (PowerShell):**
 
 ```powershell
 powershell -c "irm bun.sh/install.ps1 | iex"
 ```
 
-確認安裝成功：
+Verify the installation:
 
 ```bash
 bun --version
@@ -77,186 +79,184 @@ bun --version
 
 ---
 
-### 3. 安裝 ngrok
+### 3. Install ngrok
 
-前往 [https://ngrok.com](https://ngrok.com) 註冊帳號（免費），然後：
+Sign up for a free account at [https://ngrok.com](https://ngrok.com), then:
 
-**macOS（Homebrew）：**
+**macOS (Homebrew):**
 
 ```bash
 brew install ngrok
 ```
 
-**Windows：**
+**Windows:**
 
-前往 [https://ngrok.com/download](https://ngrok.com/download) 下載並解壓縮，加入 PATH。
+Download from [https://ngrok.com/download](https://ngrok.com/download), extract, and add to PATH.
 
-**設定 authtoken**（登入 ngrok 後，從 [Dashboard](https://dashboard.ngrok.com/get-started/your-authtoken) 複製）：
+**Set your authtoken** (copy from [ngrok Dashboard](https://dashboard.ngrok.com/get-started/your-authtoken)):
 
 ```bash
-ngrok config add-authtoken 你的authtoken
+ngrok config add-authtoken YOUR_AUTHTOKEN
 ```
 
 ---
 
-### 4. 建立 LINE Bot
+### 4. Create a LINE Bot
 
-1. 前往 [LINE Developers Console](https://developers.line.biz/console/) 並登入
-2. 點擊 **Create a Provider**，輸入名稱（例如：`My Claude Bot`）
-3. 點擊 **Create a new channel** → 選擇 **Messaging API**
-4. 填寫必要資訊（Channel name、Channel description、Category）後建立
+1. Go to [LINE Developers Console](https://developers.line.biz/console/) and sign in
+2. Click **Create a Provider** and enter a name (e.g. `My Claude Bot`)
+3. Click **Create a new channel** → select **Messaging API**
+4. Fill in the required fields (Channel name, description, Category) and create
 
-取得憑證：
+Get your credentials:
 
-- **Channel Secret**：進入 channel → **Basic settings** 頁籤 → 複製 `Channel secret`
-- **Channel Access Token**：進入 channel → **Messaging API** 頁籤 → 滾到最下方 → 點擊 **Issue** → 複製 token
+- **Channel Secret**: channel → **Basic settings** tab → copy `Channel secret`
+- **Channel Access Token**: channel → **Messaging API** tab → scroll to the bottom → click **Issue** → copy the token
 
-在 **Messaging API** 頁籤，找到以下設定並關閉（避免 bot 自動回覆干擾）：
-- **Auto-reply messages** → 設為 **Disabled**
-- **Greeting messages** → 設為 **Disabled**
+In the **Messaging API** tab, disable the following to prevent automatic replies from interfering:
+- **Auto-reply messages** → **Disabled**
+- **Greeting messages** → **Disabled**
 
 ---
 
-## 安裝與設定
+## Setup
 
-### 1. Clone 專案
+### 1. Clone the repository
 
 ```bash
-git clone https://github.com/<your-username>/line-channel
-cd line-channel
+git clone https://github.com/Moksa1123/claude-channel-line
+cd claude-channel-line
 ```
 
 ---
 
-### 2. 儲存 LINE 憑證
+### 2. Save LINE credentials
 
-憑證存放在 `~/.claude/channels/line/.env`，**不會** 被 commit 進 git。
+Credentials are stored in `~/.claude/channels/line/.env` and will **not** be committed to git.
 
-**macOS / Linux：**
+**macOS / Linux:**
 
 ```bash
 mkdir -p ~/.claude/channels/line
 cat > ~/.claude/channels/line/.env << EOF
-LINE_CHANNEL_ACCESS_TOKEN=貼上你的Channel Access Token
-LINE_CHANNEL_SECRET=貼上你的Channel Secret
+LINE_CHANNEL_ACCESS_TOKEN=your_channel_access_token
+LINE_CHANNEL_SECRET=your_channel_secret
 EOF
 ```
 
-**Windows（PowerShell）：**
+**Windows (PowerShell):**
 
 ```powershell
 New-Item -ItemType Directory -Force "$env:USERPROFILE\.claude\channels\line"
 @"
-LINE_CHANNEL_ACCESS_TOKEN=貼上你的Channel Access Token
-LINE_CHANNEL_SECRET=貼上你的Channel Secret
+LINE_CHANNEL_ACCESS_TOKEN=your_channel_access_token
+LINE_CHANNEL_SECRET=your_channel_secret
 "@ | Set-Content "$env:USERPROFILE\.claude\channels\line\.env"
 ```
 
 ---
 
-### 3. 加入 MCP Server
+### 3. Add MCP Server
 
-將 LINE channel 加入 Claude Code：
-
-**macOS / Linux：**
+**macOS / Linux:**
 
 ```bash
-claude mcp add line bun "/path/to/line-channel/server.ts"
+claude mcp add line bun "/path/to/claude-channel-line/server.ts"
 ```
 
-**Windows：**
+**Windows:**
 
 ```powershell
-claude mcp add line bun "C:/path/to/line-channel/server.ts"
+claude mcp add line bun "C:/path/to/claude-channel-line/server.ts"
 ```
 
-> 把路徑換成你實際 clone 的位置，例如 `C:/Users/yourname/line-channel/server.ts`
+> Replace the path with the actual location where you cloned the repo.
 
-確認加入成功：
+Verify it was added:
 
 ```bash
 claude mcp list
 ```
 
-應該看到 `line` 出現在清單中。
+You should see `line` in the list.
 
 ---
 
-### 4. 啟動 ngrok
+### 4. Start ngrok
 
-開一個**獨立的終端機視窗**，執行：
+Open a **separate terminal window** and run:
 
 ```bash
 ngrok http 8789
 ```
 
-成功後會看到類似：
+You should see something like:
 
 ```
 Forwarding  https://xxxx.ngrok-free.app -> http://localhost:8789
 ```
 
-複製 `https://xxxx.ngrok-free.app` 這個網址，接下來會用到。
+Copy the `https://xxxx.ngrok-free.app` URL — you'll need it in the next step.
 
-> **注意**：ngrok 視窗必須保持開啟，關掉就斷線了。每次重啟 ngrok 網址會改變，需要重新設定 Webhook URL。
-
----
-
-### 5. 設定 LINE Webhook
-
-回到 [LINE Developers Console](https://developers.line.biz/console/)，進入你的 channel：
-
-1. 點擊 **Messaging API** 頁籤
-2. 找到 **Webhook URL** 欄位，點擊 **Edit**
-3. 填入：`https://xxxx.ngrok-free.app/webhook`（換成你的 ngrok 網址）
-4. 點擊 **Update** 儲存
-5. 開啟 **Use webhook** 開關
-6. 點擊 **Verify** 確認連線 → 顯示 **Success** 代表成功
+> **Note**: Keep the ngrok window open. Closing it will disconnect the tunnel. The URL changes every time you restart ngrok (free plan), so you'll need to update the Webhook URL in LINE Console each time.
 
 ---
 
-### 6. 啟動 Claude Code
+### 5. Configure LINE Webhook
 
-開一個**新的終端機視窗**，執行：
+Back in [LINE Developers Console](https://developers.line.biz/console/), open your channel:
+
+1. Click the **Messaging API** tab
+2. Find the **Webhook URL** field and click **Edit**
+3. Enter: `https://xxxx.ngrok-free.app/webhook` (replace with your ngrok URL)
+4. Click **Update**
+5. Enable the **Use webhook** toggle
+6. Click **Verify** → should show **Success**
+
+---
+
+### 6. Start Claude Code
+
+Open a **new terminal window** and run:
 
 ```bash
 claude --dangerously-load-development-channels server:line
 ```
 
-成功啟動後，Claude Code 會自動連接 LINE MCP server 並開始監聽訊息。
+Claude Code will connect to the LINE MCP server and start listening for messages.
 
-> **重要**：每次使用都必須加上 `--dangerously-load-development-channels server:line` 旗標啟動，LINE 訊息才會進入 session。直接執行 `claude` 不會收到 LINE 訊息。
+> **Important**: You must include `--dangerously-load-development-channels server:line` every time you start Claude Code. Running `claude` without this flag will not receive LINE messages.
 
-> **Windows 注意**：此指令需在一般終端機（PowerShell / CMD）執行，不能在 Claude Code 內部執行。
+> **Windows note**: Run this command in a regular terminal (PowerShell / CMD), not inside Claude Code itself.
 
 ---
 
-### 7. 配對 LINE 帳號
+### 7. Pair your LINE account
 
-1. 打開 LINE，找到你的 bot（可在 LINE Developers Console → Messaging API → **Bot basic ID** 找到加入方式）
-2. 傳送任何訊息給 bot，例如：`hi`
-3. Bot 會自動回覆配對碼，格式如下：
+1. Open LINE and find your bot (the **Bot basic ID** is shown in LINE Developers Console → Messaging API)
+2. Send any message to the bot, e.g. `hi`
+3. The bot will reply with a pairing code:
 
    ```
-   配對碼：A1B2C3
+   Pairing code: A1B2C3
 
-   請在 Claude Code 執行：
+   Run in Claude Code:
    /line:access pair A1B2C3
    ```
 
-4. 在終端機找到配對碼對應的 userId：
+4. Look up the userId for that pairing code:
 
-   **macOS / Linux：**
+   **macOS / Linux:**
    ```bash
    cat ~/.claude/channels/line/pending/A1B2C3.json
    ```
 
-   **Windows（PowerShell）：**
+   **Windows (PowerShell):**
    ```powershell
    Get-Content "$env:USERPROFILE\.claude\channels\line\pending\A1B2C3.json"
    ```
 
-   會顯示：
+   Output:
    ```json
    {
      "userId": "Uxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
@@ -264,9 +264,9 @@ claude --dangerously-load-development-channels server:line
    }
    ```
 
-5. 將此 userId 加入白名單，編輯 `~/.claude/channels/line/access.json`：
+5. Add the userId to the allowlist by editing `~/.claude/channels/line/access.json`:
 
-   **macOS / Linux：**
+   **macOS / Linux:**
    ```bash
    cat > ~/.claude/channels/line/access.json << EOF
    {
@@ -276,7 +276,7 @@ claude --dangerously-load-development-channels server:line
    EOF
    ```
 
-   **Windows（PowerShell）：**
+   **Windows (PowerShell):**
    ```powershell
    @"
    {
@@ -286,89 +286,87 @@ claude --dangerously-load-development-channels server:line
    "@ | Set-Content "$env:USERPROFILE\.claude\channels\line\access.json"
    ```
 
-6. 再次用 LINE 傳訊息，Claude 就會收到並回覆了！
+6. Send another LINE message — Claude will now receive and reply to it!
 
 ---
 
-## 新增其他使用者
+## Adding more users
 
-讓其他人也能使用這個 bot：
+To allow other people to use the bot:
 
-1. 請對方將 bot 加為好友並傳訊，他們會收到配對碼
-2. 請對方把配對碼告訴你
-3. 查看 `~/.claude/channels/line/pending/<配對碼>.json` 取得他的 userId
-4. 將 userId 加入 `access.json` 的 `allowlist` 陣列：
+1. Have them add the bot as a friend and send a message — they'll receive a pairing code
+2. Ask them to share the pairing code with you
+3. Look up their userId in `~/.claude/channels/line/pending/<code>.json`
+4. Add their userId to the `allowlist` in `access.json`:
 
 ```json
 {
   "policy": "allowlist",
   "allowlist": [
-    "U你的userId",
-    "U對方的userId"
+    "Uyour_user_id",
+    "Utheir_user_id"
   ]
 }
 ```
 
 ---
 
-## Access Policy 說明
+## Access Policy
 
-編輯 `~/.claude/channels/line/access.json` 的 `policy` 欄位：
+Edit the `policy` field in `~/.claude/channels/line/access.json`:
 
-| Policy | 行為 | 適合情境 |
-|--------|------|----------|
-| `pairing` | 任何人傳訊都會觸發配對碼流程（預設） | 初次設定、新增使用者 |
-| `allowlist` | 只有白名單內的 userId 可傳訊，其他人靜默丟棄 | 正常使用，建議設定 |
-| `open` | 所有人都可以傳訊 | 不建議，無安全性保護 |
-
----
-
-## 環境變數
-
-| 變數 | 說明 | 預設值 |
-|------|------|--------|
-| `LINE_CHANNEL_ACCESS_TOKEN` | LINE Channel Access Token | **必填** |
-| `LINE_CHANNEL_SECRET` | LINE Channel Secret | **必填** |
-| `LINE_WEBHOOK_PORT` | Webhook 監聽 port | `8789` |
+| Policy | Behavior | When to use |
+|--------|----------|-------------|
+| `pairing` | Anyone who messages the bot receives a pairing code (default) | Initial setup, adding new users |
+| `allowlist` | Only userIds in the allowlist can send messages; others are silently dropped | Normal use — recommended |
+| `open` | Anyone can send messages | Not recommended — no access control |
 
 ---
 
-## 常見問題
+## Environment Variables
 
-**Q: Verify 時顯示 502 Bad Gateway**
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `LINE_CHANNEL_ACCESS_TOKEN` | LINE Channel Access Token | **required** |
+| `LINE_CHANNEL_SECRET` | LINE Channel Secret | **required** |
+| `LINE_WEBHOOK_PORT` | Webhook server port | `8789` |
 
-Claude Code 的 LINE server 還沒啟動。確認有執行 `claude --dangerously-load-development-channels server:line`。
+---
 
-**Q: 傳訊後 bot 沒有回應**
+## Troubleshooting
 
-- 確認 ngrok 還在執行中
-- 確認 LINE Webhook URL 正確且 **Use webhook** 已開啟
-- 確認 `access.json` 的 policy 設定正確
+**Verify shows 502 Bad Gateway**
 
-**Q: 每次重啟 ngrok 網址都會變**
+The LINE server is not running. Make sure you started Claude Code with `claude --dangerously-load-development-channels server:line`.
 
-ngrok 免費方案每次重啟網址會改變，需重新到 LINE Developers Console 更新 Webhook URL。升級付費方案可使用固定網址。
+**Bot doesn't respond to messages**
 
-**Q: Windows 上 token 含特殊字元設定失敗**
+- Check that ngrok is still running
+- Check that the LINE Webhook URL is correct and **Use webhook** is enabled
+- Check that `access.json` has the correct policy and your userId in the allowlist
 
-用引號包住 token：
+**ngrok URL changes every restart**
+
+The free ngrok plan assigns a new URL on each restart. You'll need to update the Webhook URL in LINE Developers Console each time. Upgrade to a paid plan for a fixed URL.
+
+**Token with special characters fails on Windows**
+
+Wrap the token in quotes:
 
 ```powershell
-$env:LINE_CHANNEL_ACCESS_TOKEN="你的token（含特殊字元）"
+$env:LINE_CHANNEL_ACCESS_TOKEN="your+token/with=special+chars"
 ```
 
-**Q: MCP server 啟動失敗，顯示 port 已被佔用**
+**MCP server fails to start — port already in use**
 
 ```bash
-# 換一個 port
 claude mcp remove line
 claude mcp add line bun "/path/to/server.ts" -e LINE_WEBHOOK_PORT=8790
-# ngrok 也要改
 ngrok http 8790
 ```
 
 ---
 
-## 授權
+## License
 
 MIT
