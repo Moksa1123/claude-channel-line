@@ -22,6 +22,7 @@ LINE Messaging API を通じて LINE メッセージを Claude Code セッショ
   - [LINE Webhook の設定](#5-line-webhook-の設定)
   - [Claude Code の起動](#6-claude-code-の起動)
   - [LINE アカウントのペアリング](#7-line-アカウントのペアリング)
+- [Webhook 常駐サービス（自動起動）](#webhook-常駐サービス自動起動)
 - [ユーザーの追加](#ユーザーの追加)
 - [アクセスポリシー](#アクセスポリシー)
 - [環境変数](#環境変数)
@@ -290,6 +291,58 @@ Claude Code が LINE MCP server に接続し、メッセージの受信を開始
 
 ---
 
+## Webhook 常駐サービス（自動起動）
+
+デフォルトでは、webhook サーバーは Claude Code の MCP プロセス内で動作します。**Claude Code を閉じると webhook も停止し**、LINE に 502 エラーが返されます。
+
+`webhook-service.ts` は独立した常駐サービスで、Claude Code が起動していない間も webhook を維持します。受信メッセージは `~/.claude/channels/line/messages/` に保存され、Claude Code が起動したときに自動的に処理されます。
+
+### Windows
+
+プロジェクトディレクトリでインストールスクリプトを実行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "autostart\windows\install.ps1"
+```
+
+バックグラウンドで動作する `.vbs` スクリプトをスタートアップフォルダに作成し、すぐにサービスを起動します。
+
+---
+
+### macOS
+
+```bash
+chmod +x autostart/macos/install.sh
+./autostart/macos/install.sh
+```
+
+launchd Launch Agent を使用。bun のパスを自動検出し、ログイン時に自動起動するよう設定します。
+
+停止する場合：
+```bash
+launchctl stop com.line-webhook
+launchctl unload ~/Library/LaunchAgents/com.line-webhook.plist
+```
+
+---
+
+### Linux（systemd）
+
+```bash
+chmod +x autostart/linux/install.sh
+./autostart/linux/install.sh
+```
+
+systemd ユーザーサービスを使用。bun のパスを自動検出し、ログイン時に自動起動するよう設定します。
+
+ログの確認：
+```bash
+systemctl --user status line-webhook
+journalctl --user -u line-webhook -f
+```
+
+---
+
 ## ユーザーの追加
 
 他のユーザーにボットを使わせるには：
@@ -337,7 +390,10 @@ Claude Code が LINE MCP server に接続し、メッセージの受信を開始
 
 **Verify で 502 Bad Gateway が表示される**
 
-LINE server が起動していません。`claude --dangerously-load-development-channels server:line` で起動しているか確認してください。
+Webhook サーバーが起動していません。2 つの解決方法があります：
+
+- **一時的な対処**：`claude --dangerously-load-development-channels server:line` で Claude Code を起動すると、webhook サーバーも同時に起動します。
+- **恒久的な対処**：[Webhook 常駐サービス](#webhook-常駐サービス自動起動) を設定し、Claude Code に依存せず webhook を常時稼働させます。
 
 **メッセージを送ってもボットが反応しない**
 
@@ -358,6 +414,10 @@ $env:LINE_CHANNEL_ACCESS_TOKEN="特殊文字を含むトークン"
 ```
 
 **MCP server 起動失敗（ポートが使用中）**
+
+常駐サービスが稼働中の場合、`server.ts` はポートの競合を自動検出してキューモードに切り替わるため、手動対応は不要です。
+
+別のポートを使用したい場合：
 
 ```bash
 claude mcp remove line

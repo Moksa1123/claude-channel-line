@@ -22,6 +22,7 @@
   - [設定 LINE Webhook](#5-設定-line-webhook)
   - [啟動 Claude Code](#6-啟動-claude-code)
   - [配對 LINE 帳號](#7-配對-line-帳號)
+- [Webhook 常駐服務（開機自動啟動）](#webhook-常駐服務開機自動啟動)
 - [新增其他使用者](#新增其他使用者)
 - [Access Policy 說明](#access-policy-說明)
 - [環境變數](#環境變數)
@@ -292,6 +293,60 @@ claude --dangerously-load-development-channels server:line
 
 ---
 
+## Webhook 常駐服務（開機自動啟動）
+
+預設情況下，webhook server 內嵌在 Claude Code 的 MCP 進程裡，**Claude Code 關閉後 webhook 就會停止**，導致 LINE 收到 502。
+
+`webhook-service.ts` 是獨立的常駐服務，讓 webhook 在 Claude Code 未開啟時也能保持運作（LINE 不會收到 502）。訊息會存入 `~/.claude/channels/line/messages/`，等 Claude Code 開啟後自動取用。
+
+### Windows
+
+在專案目錄執行安裝腳本（自動偵測 bun 路徑、建立開機啟動腳本）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "autostart\windows\install.ps1"
+```
+
+腳本會：
+- 在開機啟動資料夾建立 `.vbs` 腳本（背景執行，不會跳出視窗）
+- 立即啟動服務，不需重開機
+
+---
+
+### macOS
+
+```bash
+chmod +x autostart/macos/install.sh
+./autostart/macos/install.sh
+```
+
+使用 launchd Launch Agent，自動偵測 bun 路徑並設定開機啟動。
+
+停止服務：
+```bash
+launchctl stop com.line-webhook
+launchctl unload ~/Library/LaunchAgents/com.line-webhook.plist
+```
+
+---
+
+### Linux（systemd）
+
+```bash
+chmod +x autostart/linux/install.sh
+./autostart/linux/install.sh
+```
+
+使用 systemd user service，自動偵測 bun 路徑並設定開機啟動。
+
+查看狀態與日誌：
+```bash
+systemctl --user status line-webhook
+journalctl --user -u line-webhook -f
+```
+
+---
+
 ## 新增其他使用者
 
 讓其他人也能使用這個 bot：
@@ -339,7 +394,10 @@ claude --dangerously-load-development-channels server:line
 
 **Q: Verify 時顯示 502 Bad Gateway**
 
-Claude Code 的 LINE server 還沒啟動。確認有執行 `claude --dangerously-load-development-channels server:line`。
+Webhook server 尚未啟動。兩種解法：
+
+- **臨時**：執行 `claude --dangerously-load-development-channels server:line` 啟動 Claude Code，MCP server 會同時啟動 webhook。
+- **永久**：設定 [Webhook 常駐服務](#webhook-常駐服務開機自動啟動)，讓 webhook 獨立於 Claude Code 持續運作。
 
 **Q: 傳訊後 bot 沒有回應**
 
@@ -360,6 +418,10 @@ $env:LINE_CHANNEL_ACCESS_TOKEN="你的token（含特殊字元）"
 ```
 
 **Q: MCP server 啟動失敗，顯示 port 已被佔用**
+
+若已啟用常駐服務，`server.ts` 會自動偵測到 port 衝突並切換為佇列模式，不需要手動處理。
+
+若仍想使用不同 port：
 
 ```bash
 claude mcp remove line

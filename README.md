@@ -22,6 +22,7 @@ Push LINE messages into your Claude Code session via the LINE Messaging API, so 
   - [Configure LINE Webhook](#5-configure-line-webhook)
   - [Start Claude Code](#6-start-claude-code)
   - [Pair your LINE account](#7-pair-your-line-account)
+- [Always-on Webhook Service (auto-start)](#always-on-webhook-service-auto-start)
 - [Adding more users](#adding-more-users)
 - [Access Policy](#access-policy)
 - [Environment Variables](#environment-variables)
@@ -290,6 +291,58 @@ Claude Code will connect to the LINE MCP server and start listening for messages
 
 ---
 
+## Always-on Webhook Service (auto-start)
+
+By default, the webhook server runs inside Claude Code's MCP process — **it stops when Claude Code closes**, causing LINE to receive 502 errors.
+
+`webhook-service.ts` is a standalone server that keeps the webhook alive even when Claude Code is not running. Incoming messages are queued in `~/.claude/channels/line/messages/` and picked up automatically when Claude Code starts.
+
+### Windows
+
+Run the install script from the project directory (auto-detects bun path and creates a startup entry):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "autostart\windows\install.ps1"
+```
+
+This creates a background `.vbs` script in the startup folder and starts the service immediately — no reboot required.
+
+---
+
+### macOS
+
+```bash
+chmod +x autostart/macos/install.sh
+./autostart/macos/install.sh
+```
+
+Uses a launchd Launch Agent. Auto-detects bun path and registers the service for login startup.
+
+To stop:
+```bash
+launchctl stop com.line-webhook
+launchctl unload ~/Library/LaunchAgents/com.line-webhook.plist
+```
+
+---
+
+### Linux (systemd)
+
+```bash
+chmod +x autostart/linux/install.sh
+./autostart/linux/install.sh
+```
+
+Uses a systemd user service. Auto-detects bun path and enables the service on login.
+
+View logs:
+```bash
+systemctl --user status line-webhook
+journalctl --user -u line-webhook -f
+```
+
+---
+
 ## Adding more users
 
 To allow other people to use the bot:
@@ -337,7 +390,10 @@ Edit the `policy` field in `~/.claude/channels/line/access.json`:
 
 **Verify shows 502 Bad Gateway**
 
-The LINE server is not running. Make sure you started Claude Code with `claude --dangerously-load-development-channels server:line`.
+The webhook server is not running. Two options:
+
+- **Quick fix**: Start Claude Code with `claude --dangerously-load-development-channels server:line` — it will also bring up the webhook server.
+- **Permanent fix**: Set up the [Always-on Webhook Service](#always-on-webhook-service-auto-start) so the webhook runs independently of Claude Code.
 
 **Bot doesn't respond to messages**
 
@@ -358,6 +414,10 @@ $env:LINE_CHANNEL_ACCESS_TOKEN="your+token/with=special+chars"
 ```
 
 **MCP server fails to start — port already in use**
+
+If you have the always-on webhook service running, `server.ts` automatically detects the port conflict and switches to queue mode — no action needed.
+
+To use a different port instead:
 
 ```bash
 claude mcp remove line
