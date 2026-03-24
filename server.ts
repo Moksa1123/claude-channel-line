@@ -3,7 +3,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { createHmac } from 'crypto'
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, unlinkSync } from 'fs'
 import { join, dirname } from 'path'
 
 // ── 設定 ──────────────────────────────────────────────────
@@ -13,6 +13,7 @@ const CHANNEL_DIR = join(
 )
 const ENV_FILE    = join(CHANNEL_DIR, '.env')
 const ACCESS_FILE = join(CHANNEL_DIR, 'access.json')
+const MSG_DIR     = join(CHANNEL_DIR, 'messages')
 
 // 從 ~/.claude/channels/line/.env 載入憑證
 if (existsSync(ENV_FILE)) {
@@ -167,72 +168,99 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
 
 await mcp.connect(new StdioServerTransport())
 
-// ── Webhook Server ────────────────────────────────────────
-Bun.serve({
-  port: PORT,
-  hostname: '0.0.0.0',
+// ── 佇列輪詢：讀取 webhook-service 存入的訊息 ────────────
+mkdirSync(MSG_DIR, { recursive: true })
 
-  async fetch(req) {
-    const url = new URL(req.url)
+setInterval(async () => {
+  let files: string[]
+  try { files = readdirSync(MSG_DIR).filter(f => f.endsWith('.json')).sort() }
+  catch { return }
 
-    // LINE 驗證用 GET
-    if (req.method === 'GET' && url.pathname === '/webhook') {
-      return new Response('OK')
-    }
+  for (const file of files) {
+    const fp = join(MSG_DIR, file)
+    try {
+      const { userId, text, replyToken } = JSON.parse(readFileSync(fp, 'utf-8'))
+      await mcp.notification({
+        method: 'notifications/claude/channel',
+        params: { content: text, meta: { user_id: userId, reply_token: replyToken } },
+      })
+      unlinkSync(fp)
+    } catch { /* MCP 未連線或檔案讀取失敗，略過 */ }
+  }
+}, 1000)
 
-    // 接收 LINE 事件
-    if (req.method === 'POST' && url.pathname === '/webhook') {
-      const rawBody  = await req.text()
-      const signature = req.headers.get('x-line-signature') ?? ''
+// ── Webhook Server（若 webhook-service 未啟動則自己起） ───
+try {
+  Bun.serve({
+    port: PORT,
+    hostname: '0.0.0.0',
 
-      if (!verifySignature(rawBody, signature)) {
-        return new Response('Forbidden', { status: 403 })
+    async fetch(req) {
+      const url = new URL(req.url)
+
+      if (req.method === 'GET' && url.pathname === '/webhook') {
+        return new Response('OK')
       }
 
-      const payload = JSON.parse(rawBody)
-      const access  = loadAccess()
-      pruneCodes()
+      if (req.method === 'POST' && url.pathname === '/webhook') {
+        const rawBody   = await req.text()
+        const signature = req.headers.get('x-line-signature') ?? ''
 
-      for (const event of payload.events ?? []) {
-        if (event.type !== 'message' || event.message?.type !== 'text') continue
-
-        const userId     = event.source?.userId ?? ''
-        const text       = event.message.text ?? ''
-        const replyToken = event.replyToken ?? ''
-
-        if (!userId) continue
-
-        const allowed = access.allowlist.includes(userId)
-
-        if (access.policy === 'open' || allowed) {
-          // 推送進 Claude session
-          await mcp.notification({
-            method: 'notifications/claude/channel',
-            params: {
-              content: text,
-              meta: { user_id: userId, reply_token: replyToken },
-            },
-          })
-        } else if (access.policy === 'pairing') {
-          // 產生 pairing code，回覆給使用者
-          const code = genCode()
-          const expires = Date.now() + 10 * 60 * 1000
-          pending.set(code, { userId, expires })
-          savePendingCode(code, userId, expires)
-          await lineReply(replyToken,
-            `配對碼：${code}\n\n請在 Claude Code 執行：\n/line:access pair ${code}`)
+        if (!verifySignature(rawBody, signature)) {
+          return new Response('Forbidden', { status: 403 })
         }
-        // policy === 'allowlist' 且不在白名單 → 靜默丟棄
+
+        const payload = JSON.parse(rawBody)
+        const access  = loadAccess()
+        pruneCodes()
+
+        for (const event of payload.events ?? []) {
+          if (event.type !== 'message' || event.message?.type !== 'text') continue
+
+          const userId     = event.source?.userId ?? ''
+          const text       = event.message.text   ?? ''
+          const replyToken = event.replyToken      ?? ''
+
+          if (!userId) continue
+
+          const allowed = access.allowlist.includes(userId)
+
+          if (access.policy === 'open' || allowed) {
+            try {
+              await mcp.notification({
+                method: 'notifications/claude/channel',
+                params: { content: text, meta: { user_id: userId, reply_token: replyToken } },
+              })
+            } catch {
+              // MCP 斷線時存入佇列，等下次連線再處理
+              const id = `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
+              writeFileSync(join(MSG_DIR, `${id}.json`),
+                JSON.stringify({ userId, text, replyToken, ts: Date.now() }, null, 2))
+            }
+          } else if (access.policy === 'pairing') {
+            const code    = genCode()
+            const expires = Date.now() + 10 * 60 * 1000
+            pending.set(code, { userId, expires })
+            savePendingCode(code, userId, expires)
+            await lineReply(replyToken,
+              `配對碼：${code}\n\n請在 Claude Code 執行：\n/line:access pair ${code}`)
+          }
+        }
+
+        return new Response('OK')
       }
 
-      return new Response('OK')
-    }
-
-    return new Response('Not Found', { status: 404 })
-  },
-})
-
-console.error(`[line] Webhook server 啟動於 port ${PORT}`)
+      return new Response('Not Found', { status: 404 })
+    },
+  })
+  console.error(`[line] Webhook server 啟動於 port ${PORT}`)
+} catch (err: any) {
+  if (err?.code === 'EADDRINUSE') {
+    console.error(`[line] Port ${PORT} 已被 webhook-service 佔用，改用佇列模式`)
+  } else {
+    throw err
+  }
+}
 
 // ── 配對指令（由 Claude 的 skill 觸發） ────────────────────
 // 範例：環境變數 LINE_PAIR_CODE 傳入 code，自動完成配對
