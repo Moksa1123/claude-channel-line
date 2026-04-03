@@ -99,14 +99,24 @@ async function lineCall(endpoint: string, body: object) {
   }
 }
 
-async function lineReply(replyToken: string, text: string) {
-  const messages = splitText(text).slice(0, 5).map(t => ({ type: 'text', text: t }))
+async function lineReply(replyToken: string, messages: object[]) {
   await lineCall('reply', { replyToken, messages })
 }
 
-async function linePush(to: string, text: string) {
-  const messages = splitText(text).slice(0, 5).map(t => ({ type: 'text', text: t }))
+async function linePush(to: string, messages: object[]) {
   await lineCall('push', { to, messages })
+}
+
+function textMessages(text: string): object[] {
+  return splitText(text).slice(0, 5).map(t => ({ type: 'text', text: t }))
+}
+
+function imageMessage(url: string, previewUrl?: string): object {
+  return { type: 'image', originalContentUrl: url, previewImageUrl: previewUrl ?? url }
+}
+
+function flexMessage(altText: string, contents: object): object {
+  return { type: 'flex', altText, contents }
 }
 
 // ── 簽名驗證 ──────────────────────────────────────────────
@@ -125,8 +135,9 @@ const mcp = new Server(
     },
     instructions: [
       'LINE 訊息以 <channel source="line" user_id="..." reply_token="..."> 格式傳入。',
-      '使用 reply tool 回覆，傳入 user_id 和 text。',
+      '使用 reply 回覆純文字，reply_image 傳圖片，reply_flex 傳 Flex Message 卡片，reply_mixed 一次傳多種類型。',
       'reply_token 在收到訊息後 30 秒內有效；超過時間則改用 user_id 做 push。',
+      '傳 PDF 等檔案時，用 reply_flex 做一個含下載按鈕的卡片（LINE 不支援直接發送檔案）。',
     ].join('\n'),
   },
 )
@@ -135,7 +146,7 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: [
     {
       name: 'reply',
-      description: '回覆 LINE 使用者的訊息',
+      description: '回覆 LINE 使用者的訊息（純文字）',
       inputSchema: {
         type: 'object',
         properties: {
@@ -146,24 +157,88 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ['user_id', 'text'],
       },
     },
+    {
+      name: 'reply_image',
+      description: '傳送圖片給 LINE 使用者',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          user_id:     { type: 'string', description: 'LINE user ID' },
+          image_url:   { type: 'string', description: '圖片 URL（須為 HTTPS）' },
+          preview_url: { type: 'string', description: '選填：預覽圖 URL，未提供則使用 image_url' },
+          reply_token: { type: 'string', description: '選填：reply token（30 秒內有效）' },
+        },
+        required: ['user_id', 'image_url'],
+      },
+    },
+    {
+      name: 'reply_flex',
+      description: '傳送 Flex Message（豐富排版卡片）給 LINE 使用者，可附按鈕、連結、圖文混排',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          user_id:     { type: 'string', description: 'LINE user ID' },
+          alt_text:    { type: 'string', description: '替代文字（通知預覽用）' },
+          contents:    { type: 'object', description: 'Flex Message container JSON（bubble 或 carousel）' },
+          reply_token: { type: 'string', description: '選填：reply token（30 秒內有效）' },
+        },
+        required: ['user_id', 'alt_text', 'contents'],
+      },
+    },
+    {
+      name: 'reply_mixed',
+      description: '一次傳送多種類型訊息（文字+圖片+Flex），最多 5 則',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          user_id:     { type: 'string', description: 'LINE user ID' },
+          messages:    {
+            type: 'array',
+            description: 'LINE message objects 陣列（每個物件須含 type 欄位）',
+            items: { type: 'object' },
+            maxItems: 5,
+          },
+          reply_token: { type: 'string', description: '選填：reply token（30 秒內有效）' },
+        },
+        required: ['user_id', 'messages'],
+      },
+    },
   ],
 }))
 
 mcp.setRequestHandler(CallToolRequestSchema, async req => {
-  if (req.params.name === 'reply') {
-    const { user_id, text, reply_token } = req.params.arguments as {
-      user_id: string
-      text: string
-      reply_token?: string
-    }
-    if (reply_token) {
-      await lineReply(reply_token, text)
+  const args = req.params.arguments as Record<string, any>
+  const userId = args.user_id as string
+  const replyToken = args.reply_token as string | undefined
+
+  async function send(msgs: object[]) {
+    if (replyToken) {
+      await lineReply(replyToken, msgs)
     } else {
-      await linePush(user_id, text)
+      await linePush(userId, msgs)
     }
-    return { content: [{ type: 'text', text: 'sent' }] }
   }
-  throw new Error(`未知的 tool: ${req.params.name}`)
+
+  switch (req.params.name) {
+    case 'reply': {
+      await send(textMessages(args.text as string))
+      return { content: [{ type: 'text', text: 'sent' }] }
+    }
+    case 'reply_image': {
+      await send([imageMessage(args.image_url as string, args.preview_url as string | undefined)])
+      return { content: [{ type: 'text', text: 'sent' }] }
+    }
+    case 'reply_flex': {
+      await send([flexMessage(args.alt_text as string, args.contents as object)])
+      return { content: [{ type: 'text', text: 'sent' }] }
+    }
+    case 'reply_mixed': {
+      await send((args.messages as object[]).slice(0, 5))
+      return { content: [{ type: 'text', text: 'sent' }] }
+    }
+    default:
+      throw new Error(`未知的 tool: ${req.params.name}`)
+  }
 })
 
 await mcp.connect(new StdioServerTransport())
@@ -215,10 +290,16 @@ try {
         pruneCodes()
 
         for (const event of payload.events ?? []) {
-          if (event.type !== 'message' || event.message?.type !== 'text') continue
+          if (event.type !== 'message') continue
+          const msgType = event.message?.type
+          if (!['text', 'image', 'file'].includes(msgType)) continue
 
           const userId     = event.source?.userId ?? ''
-          const text       = event.message.text   ?? ''
+          const text       = msgType === 'text'
+            ? event.message.text ?? ''
+            : msgType === 'file'
+              ? `[檔案] ${event.message.fileName ?? 'unknown'}`
+              : `[圖片] messageId=${event.message.id}`
           const replyToken = event.replyToken      ?? ''
 
           if (!userId) continue
@@ -243,7 +324,7 @@ try {
             pending.set(code, { userId, expires })
             savePendingCode(code, userId, expires)
             await lineReply(replyToken,
-              `配對碼：${code}\n\n請在 Claude Code 執行：\n/line:access pair ${code}`)
+              textMessages(`配對碼：${code}\n\n請在 Claude Code 執行：\n/line:access pair ${code}`))
           }
         }
 
