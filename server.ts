@@ -278,7 +278,14 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
   }
 })
 
-await mcp.connect(new StdioServerTransport())
+// MCP 連線：斷線時立刻退出，確保 messages/ 裡的訊息不被誤刪
+const transport = new StdioServerTransport()
+transport.onclose = () => {
+  console.error('[line] MCP 連線中斷，server.ts 退出（messages/ 保留供下次 session）')
+  mcpReady = false
+  process.exit(0)
+}
+await mcp.connect(transport)
 
 // ── 佇列輪詢：讀取 webhook-service 存入的訊息 ────────────
 mkdirSync(MSG_DIR, { recursive: true })
@@ -321,8 +328,16 @@ setInterval(async () => {
       // 發送成功，刪除檔案
       unlinkSync(fp)
       console.error(`[line] 佇列訊息已送出: ${file}`)
-    } catch (err) {
-      // 發送失敗，記錄重試次數
+    } catch (err: any) {
+      // MCP 連線錯誤 → 停止處理，訊息留在 queue（transport.onclose 會觸發 exit）
+      const isConnErr = !mcpReady
+        || String(err?.message ?? '').match(/closed|disconnect|not connected|pipe/i)
+      if (isConnErr) {
+        console.error(`[line] MCP 連線異常，暫停佇列處理，訊息保留: ${file}`)
+        mcpReady = false
+        break
+      }
+      // 非連線錯誤（格式問題等）→ 記錄重試次數
       try {
         const data = JSON.parse(readFileSync(fp, 'utf-8'))
         const retryCount = (data._retryCount ?? 0) + 1
