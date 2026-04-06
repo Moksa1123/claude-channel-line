@@ -26,6 +26,7 @@ Push LINE messages into your Claude Code session via the LINE Messaging API, so 
 - [Adding more users](#adding-more-users)
 - [Access Policy](#access-policy)
 - [Sending Messages](#sending-messages)
+- [Image Backup to Google Drive](#image-backup-to-google-drive)
 - [Environment Variables](#environment-variables)
 - [Troubleshooting](#troubleshooting)
 
@@ -298,6 +299,11 @@ By default, the webhook server runs inside Claude Code's MCP process — **it st
 
 `webhook-service.ts` is a standalone server that keeps the webhook alive even when Claude Code is not running. Incoming messages are queued in `~/.claude/channels/line/messages/` and picked up automatically when Claude Code starts.
 
+Queue processing includes the following reliability features:
+- **5-second startup delay** — waits for the MCP connection to stabilize before processing queued messages
+- **Automatic retry (3x)** — failed message deliveries are retried up to 3 times before being discarded
+- **Expired reply_token cleanup** — reply tokens older than 25 seconds are automatically cleared (LINE tokens expire at 30 seconds)
+
 ### Windows
 
 Run the install script from the project directory (auto-detects bun path and creates a startup entry):
@@ -392,6 +398,33 @@ Claude can reply to LINE users using these message types:
 
 ---
 
+## Image Backup to Google Drive
+
+When users send images via LINE, `webhook-service.ts` can automatically download and upload them to Google Drive as a backup. Each image is named with a timestamp (`LINE_YYYYMMDD_HHMMSS.jpg`), and the user receives a confirmation reply with the Drive link.
+
+### Setup
+
+1. **Google OAuth2 credentials**: Place your credentials file at:
+
+   ```
+   ~/.google_workspace_mcp/credentials/<your-email>.json
+   ```
+
+   The file must contain a valid `refresh_token`, `client_id`, and `client_secret`.
+
+2. **Configure the target folder**: Set the `GDRIVE_FOLDER_ID` constant in `webhook-service.ts` to the Google Drive folder ID where images should be uploaded.
+
+   > To find the folder ID, open the folder in Google Drive and copy the last segment of the URL: `https://drive.google.com/drive/folders/<FOLDER_ID>`
+
+### How it works
+
+1. User sends an image in LINE chat
+2. `webhook-service.ts` downloads the image binary from LINE's content API
+3. The image is uploaded to the configured Google Drive folder via the Google Drive API
+4. The user receives a LINE reply confirming the backup with a direct link to the file on Google Drive
+
+---
+
 ## Environment Variables
 
 | Variable | Description | Default |
@@ -399,6 +432,7 @@ Claude can reply to LINE users using these message types:
 | `LINE_CHANNEL_ACCESS_TOKEN` | LINE Channel Access Token | **required** |
 | `LINE_CHANNEL_SECRET` | LINE Channel Secret | **required** |
 | `LINE_WEBHOOK_PORT` | Webhook server port | `8789` |
+| `GDRIVE_FOLDER_ID` | Google Drive folder ID for image backups (set in `webhook-service.ts`) | — |
 
 ---
 

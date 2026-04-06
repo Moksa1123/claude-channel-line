@@ -246,7 +246,20 @@ await mcp.connect(new StdioServerTransport())
 // ── 佇列輪詢：讀取 webhook-service 存入的訊息 ────────────
 mkdirSync(MSG_DIR, { recursive: true })
 
+// 等 MCP 連線穩定後再開始處理排隊訊息
+let mcpReady = false
+const QUEUE_START_DELAY = 5000   // 啟動後等 5 秒
+const QUEUE_POLL_INTERVAL = 1000
+const MAX_RETRY = 3
+
+setTimeout(() => {
+  mcpReady = true
+  console.error('[line] MCP ready, 開始處理排隊訊息')
+}, QUEUE_START_DELAY)
+
 setInterval(async () => {
+  if (!mcpReady) return
+
   let files: string[]
   try { files = readdirSync(MSG_DIR).filter(f => f.endsWith('.json')).sort() }
   catch { return }
@@ -254,15 +267,40 @@ setInterval(async () => {
   for (const file of files) {
     const fp = join(MSG_DIR, file)
     try {
-      const { userId, text, replyToken } = JSON.parse(readFileSync(fp, 'utf-8'))
+      const data = JSON.parse(readFileSync(fp, 'utf-8'))
+      const { userId, text, replyToken } = data
+      const retryCount = data._retryCount ?? 0
+
+      // reply_token 超過 30 秒一定過期，清掉避免 LINE API 報錯
+      const age = Date.now() - (data.ts ?? 0)
+      const meta: Record<string, string> = { user_id: userId }
+      if (age < 25000 && replyToken) meta.reply_token = replyToken
+
       await mcp.notification({
         method: 'notifications/claude/channel',
-        params: { content: text, meta: { user_id: userId, reply_token: replyToken } },
+        params: { content: text, meta },
       })
+
+      // 發送成功，刪除檔案
       unlinkSync(fp)
-    } catch { /* MCP 未連線或檔案讀取失敗，略過 */ }
+      console.error(`[line] 佇列訊息已送出: ${file}`)
+    } catch (err) {
+      // 發送失敗，記錄重試次數
+      try {
+        const data = JSON.parse(readFileSync(fp, 'utf-8'))
+        const retryCount = (data._retryCount ?? 0) + 1
+        if (retryCount >= MAX_RETRY) {
+          console.error(`[line] 佇列訊息超過重試上限，丟棄: ${file}`)
+          unlinkSync(fp)
+        } else {
+          data._retryCount = retryCount
+          writeFileSync(fp, JSON.stringify(data, null, 2))
+          console.error(`[line] 佇列訊息發送失敗，重試 ${retryCount}/${MAX_RETRY}: ${file}`)
+        }
+      } catch { /* 檔案讀寫失敗，下次再試 */ }
+    }
   }
-}, 1000)
+}, QUEUE_POLL_INTERVAL)
 
 // ── Webhook Server（若 webhook-service 未啟動則自己起） ───
 try {

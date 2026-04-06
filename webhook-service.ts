@@ -9,6 +9,81 @@ import { createHmac } from 'crypto'
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { join, dirname } from 'path'
 
+// ── Google Drive 圖片備份 ─────────────────────────────────
+const GDRIVE_FOLDER_ID = '1LB3XtwsR6wQnHmZ5-wf1ZQBoYdnp9xGg'
+const GCRED_FILE = join(
+  process.env.HOME ?? process.env.USERPROFILE ?? '~',
+  '.google_workspace_mcp', 'credentials', '94su311235@gmail.com.json'
+)
+
+async function getGoogleAccessToken(): Promise<string | null> {
+  try {
+    const cred = JSON.parse(readFileSync(GCRED_FILE, 'utf-8'))
+    // 若 token 未過期直接用
+    if (cred.expiry && Date.now() < cred.expiry - 60000) return cred.token
+    // 否則用 refresh_token 取新 token
+    const res = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id:     cred.client_id,
+        client_secret: cred.client_secret,
+        refresh_token: cred.refresh_token,
+        grant_type:    'refresh_token',
+      }),
+    })
+    if (!res.ok) { console.error('[drive] token refresh failed', await res.text()); return null }
+    const data = await res.json() as { access_token: string; expires_in: number }
+    cred.token  = data.access_token
+    cred.expiry = Date.now() + data.expires_in * 1000
+    writeFileSync(GCRED_FILE, JSON.stringify(cred, null, 2))
+    return data.access_token
+  } catch (e) {
+    console.error('[drive] getGoogleAccessToken error', e)
+    return null
+  }
+}
+
+async function uploadImageToDrive(imageBuffer: ArrayBuffer, filename: string, mimeType: string): Promise<string | null> {
+  const accessToken = await getGoogleAccessToken()
+  if (!accessToken) return null
+
+  const metadata = JSON.stringify({ name: filename, parents: [GDRIVE_FOLDER_ID] })
+  const boundary = 'drive_upload_boundary'
+  const body = [
+    `--${boundary}`,
+    'Content-Type: application/json; charset=UTF-8',
+    '',
+    metadata,
+    `--${boundary}`,
+    `Content-Type: ${mimeType}`,
+    '',
+    '',
+  ].join('\r\n')
+
+  const bodyPrefix = new TextEncoder().encode(body)
+  const bodySuffix = new TextEncoder().encode(`\r\n--${boundary}--`)
+  const imageBytes  = new Uint8Array(imageBuffer)
+
+  const combined = new Uint8Array(bodyPrefix.length + imageBytes.length + bodySuffix.length)
+  combined.set(bodyPrefix, 0)
+  combined.set(imageBytes, bodyPrefix.length)
+  combined.set(bodySuffix, bodyPrefix.length + imageBytes.length)
+
+  const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': `multipart/related; boundary=${boundary}`,
+    },
+    body: combined,
+  })
+
+  if (!res.ok) { console.error('[drive] upload failed', await res.text()); return null }
+  const data = await res.json() as { id: string; webViewLink: string }
+  return data.webViewLink ?? null
+}
+
 // ── 設定 ──────────────────────────────────────────────────
 const CHANNEL_DIR = join(
   process.env.HOME ?? process.env.USERPROFILE ?? '~',
@@ -125,11 +200,43 @@ Bun.serve({
       pruneCodes()
 
       for (const event of payload.events ?? []) {
-        if (event.type !== 'message' || event.message?.type !== 'text') continue
+        if (event.type !== 'message') continue
 
         const userId     = event.source?.userId ?? ''
-        const text       = event.message.text   ?? ''
         const replyToken = event.replyToken      ?? ''
+        const msgType    = event.message?.type   ?? ''
+
+        // ── 圖片備份 ──────────────────────────────────────
+        if (msgType === 'image' && userId) {
+          const access = loadAccess()
+          if (access.policy === 'open' || access.allowlist.includes(userId)) {
+            const messageId = event.message.id
+            ;(async () => {
+              try {
+                const imgRes = await fetch(`https://api-data.line.me/v2/bot/message/${messageId}/content`, {
+                  headers: { Authorization: `Bearer ${TOKEN}` },
+                })
+                if (!imgRes.ok) throw new Error(`LINE content API ${imgRes.status}`)
+                const buf = await imgRes.arrayBuffer()
+                const now = new Date()
+                const ts  = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}${String(now.getSeconds()).padStart(2,'0')}`
+                const filename = `LINE_${ts}.jpg`
+                const link = await uploadImageToDrive(buf, filename, 'image/jpeg')
+                if (link && replyToken) {
+                  await lineReply(replyToken, `✅ 圖片已備份到 Drive\n📁 LINE備份 / ${filename}\n🔗 ${link}`)
+                }
+              } catch (e) {
+                console.error('[image-backup] error', e)
+                if (replyToken) await lineReply(replyToken, '⚠️ 圖片備份失敗，請稍後再試')
+              }
+            })()
+          }
+          continue
+        }
+
+        if (msgType !== 'text') continue
+
+        const text = event.message.text ?? ''
 
         if (!userId) continue
 

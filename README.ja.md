@@ -26,6 +26,7 @@ LINE Messaging API を通じて LINE メッセージを Claude Code セッショ
 - [ユーザーの追加](#ユーザーの追加)
 - [アクセスポリシー](#アクセスポリシー)
 - [送信できるメッセージタイプ](#送信できるメッセージタイプ)
+- [画像の Google Drive 自動バックアップ](#画像の-google-drive-自動バックアップ)
 - [環境変数](#環境変数)
 - [トラブルシューティング](#トラブルシューティング)
 
@@ -298,6 +299,11 @@ Claude Code が LINE MCP server に接続し、メッセージの受信を開始
 
 `webhook-service.ts` は独立した常駐サービスで、Claude Code が起動していない間も webhook を維持します。受信メッセージは `~/.claude/channels/line/messages/` に保存され、Claude Code が起動したときに自動的に処理されます。
 
+キュー処理には以下の信頼性機能が含まれます：
+- **5 秒の起動遅延** — MCP 接続が安定するまで待機してからキューメッセージの処理を開始
+- **自動リトライ（3 回）** — 配信に失敗したメッセージは最大 3 回まで再試行してから破棄
+- **期限切れ reply_token のクリーンアップ** — 25 秒以上経過した reply_token を自動的にクリア（LINE トークンは 30 秒で期限切れ）
+
 ### Windows
 
 プロジェクトディレクトリでインストールスクリプトを実行：
@@ -392,6 +398,33 @@ Claude は以下の方法で LINE ユーザーに返信できます：
 
 ---
 
+## 画像の Google Drive 自動バックアップ
+
+ユーザーが LINE で画像を送信すると、`webhook-service.ts` が自動的にダウンロードして Google Drive にバックアップします。各画像はタイムスタンプ付きのファイル名（`LINE_YYYYMMDD_HHMMSS.jpg`）で保存され、ユーザーには Drive リンク付きの確認メッセージが届きます。
+
+### セットアップ
+
+1. **Google OAuth2 認証情報**：認証ファイルを以下の場所に配置：
+
+   ```
+   ~/.google_workspace_mcp/credentials/<メールアドレス>.json
+   ```
+
+   ファイルには有効な `refresh_token`、`client_id`、`client_secret` が必要です。
+
+2. **保存先フォルダの設定**：`webhook-service.ts` の `GDRIVE_FOLDER_ID` 定数に、画像をアップロードする Google Drive フォルダの ID を設定します。
+
+   > フォルダ ID は Google Drive の URL から取得できます：`https://drive.google.com/drive/folders/<FOLDER_ID>`
+
+### 動作の流れ
+
+1. ユーザーが LINE チャットで画像を送信
+2. `webhook-service.ts` が LINE Content API から画像をダウンロード
+3. 指定された Google Drive フォルダに画像をアップロード
+4. ユーザーに Google Drive ファイルへの直リンク付き確認メッセージを LINE で返信
+
+---
+
 ## 環境変数
 
 | 変数名 | 説明 | デフォルト |
@@ -399,6 +432,7 @@ Claude は以下の方法で LINE ユーザーに返信できます：
 | `LINE_CHANNEL_ACCESS_TOKEN` | LINE Channel Access Token | **必須** |
 | `LINE_CHANNEL_SECRET` | LINE Channel Secret | **必須** |
 | `LINE_WEBHOOK_PORT` | Webhook サーバーのポート | `8789` |
+| `GDRIVE_FOLDER_ID` | 画像バックアップ先の Google Drive フォルダ ID（`webhook-service.ts` で設定） | — |
 
 ---
 
