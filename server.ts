@@ -320,11 +320,34 @@ mkdirSync(MSG_DIR, { recursive: true })
 
 // 等 MCP 連線穩定後再開始處理排隊訊息
 let mcpReady = false
-const QUEUE_START_DELAY = 5000   // 啟動後等 5 秒
+const QUEUE_START_DELAY = 20000  // 啟動後等 20 秒（給 Claude Code 初始化時間）
 const QUEUE_POLL_INTERVAL = 1000
 const MAX_RETRY = 3
 
-setTimeout(() => {
+// 啟動時若有離線訊息，先 push 給使用者確認（確保看到，不依賴 Claude 狀態）
+async function notifyQueuedMessages() {
+  let files: string[]
+  try { files = readdirSync(MSG_DIR).filter(f => f.endsWith('.json')).sort() }
+  catch { return }
+  if (files.length === 0) return
+
+  const lines = files.map(f => {
+    try {
+      const d = JSON.parse(readFileSync(join(MSG_DIR, f), 'utf-8'))
+      const ago = Math.round((Date.now() - (d.ts ?? 0)) / 1000)
+      return `• ${d.text?.slice(0, 80) ?? '(空)'}（${ago} 秒前）`
+    } catch { return null }
+  }).filter(Boolean)
+
+  await lineCall('push', {
+    to: (JSON.parse(readFileSync(join(CHANNEL_DIR, 'access.json'), 'utf-8')) as AccessConfig).allowlist[0],
+    messages: [{ type: 'text', text: `📬 發現 ${files.length} 條離線訊息，Claude 正在補處理中：\n\n${lines.join('\n')}\n\n如未收到回覆，請重新詢問。` }],
+  })
+  console.error(`[line] 離線訊息通知已 push（${files.length} 條）`)
+}
+
+setTimeout(async () => {
+  await notifyQueuedMessages().catch(e => console.error('[line] notifyQueuedMessages error:', e))
   mcpReady = true
   console.error('[line] MCP ready, 開始處理排隊訊息')
 }, QUEUE_START_DELAY)
