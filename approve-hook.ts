@@ -19,8 +19,21 @@ const ENV_FILE = join(CHANNEL_DIR, '.env')
 
 mkdirSync(APPROVAL_DIR, { recursive: true })
 
+// ── 設定檔：approve-config.json ───────────────────────────
+// scope: "line-only" → 只有 LINE MCP 啟用的 session 才審批
+//        "all"       → 所有 session 都走 LINE 審批
+const CONFIG_FILE = join(CHANNEL_DIR, 'approve-config.json')
+
+type ApproveConfig = { scope: 'line-only' | 'all' }
+
+function loadConfig(): ApproveConfig {
+  try {
+    if (existsSync(CONFIG_FILE)) return JSON.parse(readFileSync(CONFIG_FILE, 'utf-8'))
+  } catch {}
+  return { scope: 'line-only' } // 預設：只有 LINE session
+}
+
 // ── 檢查 LINE MCP server 是否在跑 ─────────────────────────
-// 只有 LINE channel 啟用時才走 LINE 審批，否則自動放行
 function isLineMcpRunning(): boolean {
   try {
     if (!existsSync(PID_FILE)) return false
@@ -29,6 +42,13 @@ function isLineMcpRunning(): boolean {
     process.kill(pid, 0) // 不殺，只檢查存在
     return true
   } catch { return false }
+}
+
+// ── 判斷此 session 是否需要走 LINE 審批 ──────────────────
+function shouldApproveViaLine(): boolean {
+  const config = loadConfig()
+  if (config.scope === 'all') return true
+  return isLineMcpRunning()
 }
 
 // ── 載入 LINE 憑證 ──────────────────────────────────────
@@ -194,8 +214,8 @@ async function main() {
   let input: any
   try { input = JSON.parse(raw) } catch { process.exit(0) } // 解析失敗 → 放行
 
-  // LINE MCP 沒在跑 → 自動放行（不影響其他 session）
-  if (!isLineMcpRunning()) process.exit(0)
+  // 根據設定判斷是否走 LINE 審批
+  if (!shouldApproveViaLine()) process.exit(0)
 
   const toolName = input.tool_name ?? ''
   const toolInput = input.tool_input ?? {}
