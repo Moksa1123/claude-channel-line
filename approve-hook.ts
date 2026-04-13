@@ -78,10 +78,39 @@ const SAFE_BASH_PATTERNS = [
   /^(cd|pushd|popd)\b/i,
 ]
 
+// ── "Allow Always" 使用者白名單 ─────────────────────────
+const ALLOW_ALWAYS_FILE = join(CHANNEL_DIR, 'allow-always.json')
+
+type AllowAlwaysList = { patterns: string[] }
+
+function loadAllowAlways(): AllowAlwaysList {
+  try {
+    if (existsSync(ALLOW_ALWAYS_FILE)) return JSON.parse(readFileSync(ALLOW_ALWAYS_FILE, 'utf-8'))
+  } catch {}
+  return { patterns: [] }
+}
+
+// 取出指令的前兩個 token 當作 pattern（例如 "git push origin main" → "git push"）
+function commandPattern(cmd: string): string {
+  const tokens = cmd.trim().split(/\s+/)
+  return tokens.slice(0, 2).join(' ')
+}
+
+function isAllowedAlways(cmd: string): boolean {
+  const pattern = commandPattern(cmd)
+  if (!pattern) return false
+  const list = loadAllowAlways()
+  return list.patterns.includes(pattern)
+}
+
 function needsApproval(toolName: string, toolInput: any): { needed: boolean; summary: string } {
   if (toolName === 'Bash') {
     const cmd = (toolInput?.command ?? '').trim()
     if (SAFE_BASH_PATTERNS.some(p => p.test(cmd))) {
+      return { needed: false, summary: '' }
+    }
+    // 使用者之前按過 "Allow Always" 的指令 → 自動放行
+    if (isAllowedAlways(cmd)) {
       return { needed: false, summary: '' }
     }
     return { needed: true, summary: cmd.slice(0, 200) }
@@ -109,12 +138,13 @@ function needsApproval(toolName: string, toolInput: any): { needed: boolean; sum
 }
 
 // ── LINE Push ────────────────────────────────────────────
-async function pushApprovalFlex(approvalId: string, toolName: string, summary: string, sessionId: string, cwd: string) {
+async function pushApprovalFlex(approvalId: string, toolName: string, summary: string, sessionId: string, cwd: string, cmdPattern: string) {
   const userId = getUserId()
   if (!userId || !TOKEN) return
 
   // 從 cwd 取最後兩層路徑當作專案標籤
   const projectLabel = cwd.split(/[/\\]/).slice(-2).join('/')
+  const patternDisplay = cmdPattern || '(n/a)'
 
   const flex = {
     type: 'flex',
@@ -140,6 +170,7 @@ async function pushApprovalFlex(approvalId: string, toolName: string, summary: s
           { type: 'separator' },
           { type: 'text', text: summary || '(no details)', size: 'sm', color: '#333333', wrap: true, maxLines: 8 },
           { type: 'box', layout: 'vertical', margin: 'md', contents: [
+            { type: 'text', text: `Pattern: ${patternDisplay}`, size: 'xs', color: '#7f8c8d' },
             { type: 'text', text: `Session: ${sessionId.slice(0, 8)}`, size: 'xs', color: '#aaaaaa' },
             { type: 'text', text: `ID: ${approvalId}`, size: 'xs', color: '#aaaaaa' },
           ]},
@@ -147,20 +178,29 @@ async function pushApprovalFlex(approvalId: string, toolName: string, summary: s
       },
       footer: {
         type: 'box',
-        layout: 'horizontal',
-        spacing: 'md',
+        layout: 'vertical',
+        spacing: 'sm',
         contents: [
           {
             type: 'button',
             action: { type: 'postback', label: 'Allow', data: `action=approve&id=${approvalId}` },
             style: 'primary',
             color: '#28a745',
+            height: 'sm',
+          },
+          {
+            type: 'button',
+            action: { type: 'postback', label: 'Allow Always', data: `action=approve_always&id=${approvalId}` },
+            style: 'primary',
+            color: '#3498db',
+            height: 'sm',
           },
           {
             type: 'button',
             action: { type: 'postback', label: 'Deny', data: `action=deny&id=${approvalId}` },
             style: 'primary',
             color: '#dc3545',
+            height: 'sm',
           },
         ],
       },
@@ -218,6 +258,9 @@ async function main() {
     process.exit(0)
   }
 
+  // 取指令 pattern（Allow Always 用）
+  const cmdPattern = toolName === 'Bash' ? commandPattern(toolInput?.command ?? '') : ''
+
   // 建立審批請求
   const approvalId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
   const approvalFile = join(APPROVAL_DIR, `${approvalId}.json`)
@@ -227,11 +270,12 @@ async function main() {
     summary,
     sessionId,
     cwd,
+    cmdPattern,
     ts: Date.now(),
   }, null, 2))
 
   // Push Flex 到 LINE
-  await pushApprovalFlex(approvalId, toolName, summary, sessionId, cwd)
+  await pushApprovalFlex(approvalId, toolName, summary, sessionId, cwd, cmdPattern)
 
   // 等待回應
   const result = await waitForApproval(approvalId)

@@ -209,15 +209,37 @@ Bun.serve({
 
           if (action && approvalId) {
             const APPROVAL_DIR = join(CHANNEL_DIR, 'approvals')
+            const ALLOW_ALWAYS_FILE = join(CHANNEL_DIR, 'allow-always.json')
             const fp = join(APPROVAL_DIR, `${approvalId}.json`)
             try {
               if (existsSync(fp)) {
                 const data = JSON.parse(readFileSync(fp, 'utf-8'))
-                data.status = action === 'approve' ? 'approved' : 'denied'
-                writeFileSync(fp, JSON.stringify(data, null, 2))
-                if (replyToken) {
-                  await lineReply(replyToken,
-                    action === 'approve' ? 'Allowed' : 'Denied')
+
+                if (action === 'approve_always') {
+                  // 加入永久白名單
+                  let list: { patterns: string[] }
+                  try {
+                    list = existsSync(ALLOW_ALWAYS_FILE)
+                      ? JSON.parse(readFileSync(ALLOW_ALWAYS_FILE, 'utf-8'))
+                      : { patterns: [] }
+                  } catch { list = { patterns: [] } }
+
+                  const pattern = data.cmdPattern ?? ''
+                  if (pattern && !list.patterns.includes(pattern)) {
+                    list.patterns.push(pattern)
+                    writeFileSync(ALLOW_ALWAYS_FILE, JSON.stringify(list, null, 2))
+                  }
+                  data.status = 'approved'
+                  writeFileSync(fp, JSON.stringify(data, null, 2))
+                  if (replyToken) {
+                    await lineReply(replyToken, `Allowed. "${pattern}" 已加入永久白名單，之後同類指令自動放行。`)
+                  }
+                } else {
+                  data.status = action === 'approve' ? 'approved' : 'denied'
+                  writeFileSync(fp, JSON.stringify(data, null, 2))
+                  if (replyToken) {
+                    await lineReply(replyToken, action === 'approve' ? 'Allowed' : 'Denied')
+                  }
                 }
               } else if (replyToken) {
                 await lineReply(replyToken, '授權請求已過期或不存在')
