@@ -86,9 +86,12 @@ function needsApproval(toolName: string, toolInput: any): { needed: boolean; sum
 }
 
 // ── LINE Push ────────────────────────────────────────────
-async function pushApprovalFlex(approvalId: string, toolName: string, summary: string) {
+async function pushApprovalFlex(approvalId: string, toolName: string, summary: string, sessionId: string, cwd: string) {
   const userId = getUserId()
   if (!userId || !TOKEN) return
+
+  // 從 cwd 取最後兩層路徑當作專案標籤
+  const projectLabel = cwd.split(/[/\\]/).slice(-2).join('/')
 
   const flex = {
     type: 'flex',
@@ -102,6 +105,7 @@ async function pushApprovalFlex(approvalId: string, toolName: string, summary: s
         paddingAll: '12px',
         contents: [
           { type: 'text', text: '🔐 Permission Request', size: 'md', color: '#ffffff', weight: 'bold' },
+          { type: 'text', text: `📂 ${projectLabel}`, size: 'xs', color: '#95a5c6', margin: 'xs' },
         ],
       },
       body: {
@@ -111,8 +115,11 @@ async function pushApprovalFlex(approvalId: string, toolName: string, summary: s
         contents: [
           { type: 'text', text: `Tool: ${toolName}`, size: 'sm', color: '#555555' },
           { type: 'separator' },
-          { type: 'text', text: summary || '(no details)', size: 'sm', color: '#333333', wrap: true, maxLines: 6 },
-          { type: 'text', text: `ID: ${approvalId}`, size: 'xs', color: '#aaaaaa', margin: 'md' },
+          { type: 'text', text: summary || '(no details)', size: 'sm', color: '#333333', wrap: true, maxLines: 8 },
+          { type: 'box', layout: 'vertical', margin: 'md', contents: [
+            { type: 'text', text: `Session: ${sessionId.slice(0, 8)}`, size: 'xs', color: '#aaaaaa' },
+            { type: 'text', text: `ID: ${approvalId}`, size: 'xs', color: '#aaaaaa' },
+          ]},
         ],
       },
       footer: {
@@ -176,6 +183,8 @@ async function main() {
 
   const toolName = input.tool_name ?? ''
   const toolInput = input.tool_input ?? {}
+  const sessionId = input.session_id ?? 'unknown'
+  const cwd = input.cwd ?? ''
 
   const { needed, summary } = needsApproval(toolName, toolInput)
   if (!needed) {
@@ -190,11 +199,13 @@ async function main() {
     status: 'pending',
     tool: toolName,
     summary,
+    sessionId,
+    cwd,
     ts: Date.now(),
   }, null, 2))
 
   // Push Flex 到 LINE
-  await pushApprovalFlex(approvalId, toolName, summary)
+  await pushApprovalFlex(approvalId, toolName, summary, sessionId, cwd)
 
   // 等待回應
   const result = await waitForApproval(approvalId)
