@@ -217,7 +217,7 @@ async function pushApprovalFlex(approvalId: string, toolName: string, summary: s
 // ── 輪詢等待回應 ────────────────────────────────────────
 function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)) }
 
-const TIMEOUT = 300000 // 5 分鐘
+const TIMEOUT = 1800000 // 30 分鐘
 
 async function waitForApproval(approvalId: string): Promise<'approved' | 'denied' | 'timeout'> {
   const fp = join(APPROVAL_DIR, `${approvalId}.json`)
@@ -306,7 +306,7 @@ async function main() {
     }))
     process.exit(0)
   } else {
-    const reason = result === 'timeout' ? '5 分鐘未回應，自動拒絕' : 'LINE 使用者拒絕'
+    const reason = result === 'timeout' ? '30 分鐘未回應，自動拒絕' : 'LINE 使用者拒絕'
     console.log(JSON.stringify({
       hookSpecificOutput: {
         permissionDecision: 'deny',
