@@ -200,6 +200,35 @@ Bun.serve({
       pruneCodes()
 
       for (const event of payload.events ?? []) {
+        // ── Postback 處理（LINE 授權按鈕回覆）──────────────
+        if (event.type === 'postback') {
+          const params = new URLSearchParams(event.postback?.data ?? '')
+          const action = params.get('action')
+          const approvalId = params.get('id')
+          const replyToken = event.replyToken ?? ''
+
+          if (action && approvalId) {
+            const APPROVAL_DIR = join(CHANNEL_DIR, 'approvals')
+            const fp = join(APPROVAL_DIR, `${approvalId}.json`)
+            try {
+              if (existsSync(fp)) {
+                const data = JSON.parse(readFileSync(fp, 'utf-8'))
+                data.status = action === 'approve' ? 'approved' : 'denied'
+                writeFileSync(fp, JSON.stringify(data, null, 2))
+                if (replyToken) {
+                  await lineReply(replyToken,
+                    action === 'approve' ? '✅ 已允許執行' : '❌ 已拒絕執行')
+                }
+              } else if (replyToken) {
+                await lineReply(replyToken, '⚠️ 授權請求已過期或不存在')
+              }
+            } catch (e) {
+              console.error('[approval] postback error:', e)
+            }
+          }
+          continue
+        }
+
         if (event.type !== 'message') continue
 
         const userId     = event.source?.userId ?? ''
