@@ -28,6 +28,7 @@ Push LINE messages into your Claude Code session via the LINE Messaging API, so 
 - [Sending Messages](#sending-messages)
 - [Image Backup to Google Drive](#image-backup-to-google-drive)
 - [Environment Variables](#environment-variables)
+- [Remote Permission Approval via LINE](#remote-permission-approval-via-line)
 - [Troubleshooting](#troubleshooting)
 
 ---
@@ -300,9 +301,11 @@ By default, the webhook server runs inside Claude Code's MCP process — **it st
 `webhook-service.ts` is a standalone server that keeps the webhook alive even when Claude Code is not running. Incoming messages are queued in `~/.claude/channels/line/messages/` and picked up automatically when Claude Code starts.
 
 Queue processing includes the following reliability features:
-- **5-second startup delay** — waits for the MCP connection to stabilize before processing queued messages
+- **20-second startup delay** — waits for the MCP connection to stabilize before processing queued messages
+- **Offline message notification** — on reconnect, pushes a LINE message listing any missed messages so the user knows what was lost
 - **Automatic retry (3x)** — failed message deliveries are retried up to 3 times before being discarded
 - **Expired reply_token cleanup** — reply tokens older than 25 seconds are automatically cleared (LINE tokens expire at 30 seconds)
+- **2-second shutdown watchdog** — prevents zombie processes when MCP disconnects (matches official Telegram/Discord plugin pattern)
 
 ### Windows
 
@@ -422,6 +425,74 @@ When users send images via LINE, `webhook-service.ts` can automatically download
 2. `webhook-service.ts` downloads the image binary from LINE's content API
 3. The image is uploaded to the configured Google Drive folder via the Google Drive API
 4. The user receives a LINE reply confirming the backup with a direct link to the file on Google Drive
+
+---
+
+## Remote Permission Approval via LINE
+
+Approve or deny Claude Code tool calls from your phone. When Claude attempts a dangerous operation (e.g. shell commands), a Flex Message is pushed to LINE with Allow/Deny buttons. Safe operations (read-only commands) are auto-approved.
+
+### How it works
+
+1. Claude calls a Bash command (e.g. `git push`)
+2. `approve-hook.ts` intercepts via PreToolUse hook
+3. Safe commands (`git status`, `ls`, etc.) pass through instantly
+4. Dangerous commands push a Flex card to LINE with the command details
+5. You tap **Allow** or **Deny** on your phone
+6. 60-second timeout — auto-denies if no response
+
+### Setup
+
+Add the hook to your Claude Code settings (`~/.claude/settings.json`):
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun /path/to/claude-channel-line/approve-hook.ts",
+            "timeout": 120
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### Configuration
+
+Edit `~/.claude/channels/line/approve-config.json`:
+
+```json
+{
+  "scope": "line-only"
+}
+```
+
+| Scope | Behavior |
+|-------|----------|
+| `line-only` | Only sessions with LINE MCP active trigger LINE approval (default) |
+| `all` | All sessions send approval requests to LINE |
+
+### What gets approved
+
+| Operation | Approval |
+|-----------|----------|
+| Read-only Bash (`git status`, `ls`, `cat`, `pwd`) | Auto-approved |
+| Destructive Bash (`git push`, `rm`, `npm publish`) | LINE approval required |
+| Write/Edit to `.env`, `.key`, `.pem` files | LINE approval required |
+| All other tools (Read, Glob, Grep, etc.) | Auto-approved |
+
+### Notes
+
+- Each approval uses one LINE push API call (free plan: 200/month)
+- The `webhook-service.ts` must be running to receive postback button responses
+- Requires a new Claude Code session to load hook changes from settings.json
 
 ---
 
