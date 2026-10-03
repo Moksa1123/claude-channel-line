@@ -5,6 +5,10 @@ description: 設定 LINE channel 的 bot 憑證（Channel Access Token 與 Chann
 
 設定 LINE Messaging API 憑證，並顯示目前設定狀態。
 
+> 以 plugin 安裝時，憑證由 plugin 的 userConfig 管理（啟用 plugin 時輸入，存在系統安全儲存區），
+> 優先於 `.env`。此指令寫入的 `.env` 只給手動安裝（`claude mcp add`）與常駐的 `webhook-service.ts` 使用。
+> 顯示狀態時若環境變數已有 `LINE_CHANNEL_ACCESS_TOKEN`，請註明「由 plugin 設定提供」。
+
 ## 用法
 
 ```

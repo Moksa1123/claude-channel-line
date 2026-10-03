@@ -26,7 +26,6 @@ Push LINE messages into your Claude Code session via the LINE Messaging API, so 
 - [Adding more users](#adding-more-users)
 - [Access Policy](#access-policy)
 - [Sending Messages](#sending-messages)
-- [Image Backup to Google Drive](#image-backup-to-google-drive)
 - [Environment Variables](#environment-variables)
 - [Remote Permission Approval via LINE](#remote-permission-approval-via-line)
 - [Troubleshooting](#troubleshooting)
@@ -135,6 +134,8 @@ cd claude-channel-line
 ---
 
 ### 2. Save LINE credentials
+
+> **Installed as a Claude Code plugin?** Skip this step. Claude Code asks for the Channel Access Token and Channel Secret when you enable the plugin and keeps them in your system's secure credential store. The `.env` file below is only needed for manual installs (`claude mcp add`) and for the always-on `webhook-service.ts`.
 
 Credentials are stored in `~/.claude/channels/line/.env` and will **not** be committed to git.
 
@@ -401,33 +402,6 @@ Claude can reply to LINE users using these message types:
 
 ---
 
-## Image Backup to Google Drive
-
-When users send images via LINE, `webhook-service.ts` can automatically download and upload them to Google Drive as a backup. Each image is named with a timestamp (`LINE_YYYYMMDD_HHMMSS.jpg`), and the user receives a confirmation reply with the Drive link.
-
-### Setup
-
-1. **Google OAuth2 credentials**: Place your credentials file at:
-
-   ```
-   ~/.google_workspace_mcp/credentials/<your-email>.json
-   ```
-
-   The file must contain a valid `refresh_token`, `client_id`, and `client_secret`.
-
-2. **Configure the target folder**: Set the `GDRIVE_FOLDER_ID` constant in `webhook-service.ts` to the Google Drive folder ID where images should be uploaded.
-
-   > To find the folder ID, open the folder in Google Drive and copy the last segment of the URL: `https://drive.google.com/drive/folders/<FOLDER_ID>`
-
-### How it works
-
-1. User sends an image in LINE chat
-2. `webhook-service.ts` downloads the image binary from LINE's content API
-3. The image is uploaded to the configured Google Drive folder via the Google Drive API
-4. The user receives a LINE reply confirming the backup with a direct link to the file on Google Drive
-
----
-
 ## Remote Permission Approval via LINE
 
 Approve or deny Claude Code tool calls from your phone. When Claude attempts a dangerous operation (e.g. shell commands), a Flex Message is pushed to LINE with Allow/Deny buttons. Safe operations (read-only commands) are auto-approved.
@@ -511,7 +485,6 @@ Only this session will send approval requests to LINE. Other sessions run the ho
 | `LINE_CHANNEL_ACCESS_TOKEN` | LINE Channel Access Token | **required** |
 | `LINE_CHANNEL_SECRET` | LINE Channel Secret | **required** |
 | `LINE_WEBHOOK_PORT` | Webhook server port | `8789` |
-| `GDRIVE_FOLDER_ID` | Google Drive folder ID for image backups (set in `webhook-service.ts`) | — |
 
 ---
 

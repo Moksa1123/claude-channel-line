@@ -60,11 +60,15 @@ function killOldInstance() {
 killOldInstance()
 const MSG_DIR     = join(CHANNEL_DIR, 'messages')
 
-// 從 ~/.claude/channels/line/.env 載入憑證
+// 憑證來源：plugin 安裝時由 userConfig 帶入環境變數（存在系統安全儲存區）；
+// 手動 `claude mcp add` 安裝時才退回讀 ~/.claude/channels/line/.env
+for (const k of ['LINE_CHANNEL_ACCESS_TOKEN', 'LINE_CHANNEL_SECRET']) {
+  if (process.env[k]?.startsWith('${')) delete process.env[k] // 未替換的 ${user_config.*}
+}
 if (existsSync(ENV_FILE)) {
   for (const line of readFileSync(ENV_FILE, 'utf-8').split('\n')) {
     const m = line.match(/^([^#=\s][^=]*)=(.*)$/)
-    if (m) process.env[m[1].trim()] = m[2].trim()
+    if (m && !process.env[m[1].trim()]) process.env[m[1].trim()] = m[2].trim()
   }
 }
 
@@ -73,7 +77,7 @@ const SECRET = process.env.LINE_CHANNEL_SECRET ?? ''
 const PORT   = Number(process.env.LINE_WEBHOOK_PORT ?? 8789)
 
 if (!TOKEN || !SECRET) {
-  console.error('[line] 尚未設定憑證，請執行 /line:configure <token> <secret>')
+  console.error('[line] 尚未設定憑證：plugin 使用者請在 /plugin 設定 LINE 憑證；手動安裝請執行 /line:configure <token> <secret>')
   process.exit(1)
 }
 

@@ -26,7 +26,6 @@ LINE Messaging API를 통해 LINE 메시지를 Claude Code 세션으로 전송�
 - [다른 사용자 추가](#다른-사용자-추가)
 - [액세스 정책](#액세스-정책)
 - [메시지 전송 유형](#메시지-전송-유형)
-- [이미지 Google Drive 자동 백업](#이미지-google-drive-자동-백업)
 - [환경 변수](#환경-변수)
 - [문제 해결](#문제-해결)
 
@@ -134,6 +133,8 @@ cd claude-channel-line
 ---
 
 ### 2. LINE 인증 정보 저장
+
+> **Claude Code 플러그인으로 설치했다면** 이 단계는 건너뛰세요. 플러그인을 활성화할 때 Claude Code가 Channel Access Token과 Channel Secret을 묻고 시스템의 보안 자격 증명 저장소에 보관합니다. 아래 `.env`는 수동 설치（`claude mcp add`）와 상시 실행되는 `webhook-service.ts`에만 필요합니다.
 
 인증 정보는 `~/.claude/channels/line/.env` 에 저장되며, git에는 **커밋되지 않습니다**.
 
@@ -398,33 +399,6 @@ Claude는 다음 방식으로 LINE 사용자에게 답장할 수 있습니다：
 
 ---
 
-## 이미지 Google Drive 자동 백업
-
-사용자가 LINE으로 이미지를 전송하면 `webhook-service.ts`가 자동으로 다운로드하여 Google Drive에 백업합니다. 각 이미지는 타임스탬프가 포함된 파일명（`LINE_YYYYMMDD_HHMMSS.jpg`）으로 저장되며, 사용자에게 Drive 링크가 포함된 확인 메시지가 전송됩니다.
-
-### 설정 방법
-
-1. **Google OAuth2 인증 정보**：인증 파일을 다음 경로에 배치：
-
-   ```
-   ~/.google_workspace_mcp/credentials/<이메일주소>.json
-   ```
-
-   파일에는 유효한 `refresh_token`, `client_id`, `client_secret`이 포함되어야 합니다.
-
-2. **대상 폴더 설정**：`webhook-service.ts`의 `GDRIVE_FOLDER_ID` 상수를 이미지를 업로드할 Google Drive 폴더 ID로 설정합니다.
-
-   > 폴더 ID는 Google Drive URL에서 확인할 수 있습니다：`https://drive.google.com/drive/folders/<FOLDER_ID>`
-
-### 동작 방식
-
-1. 사용자가 LINE 채팅에서 이미지를 전송
-2. `webhook-service.ts`가 LINE Content API를 통해 이미지를 다운로드
-3. 지정된 Google Drive 폴더에 이미지를 업로드
-4. 사용자에게 Google Drive 파일 링크가 포함된 확인 메시지를 LINE으로 답장
-
----
-
 ## 환경 변수
 
 | 변수명 | 설명 | 기본값 |
@@ -432,7 +406,6 @@ Claude는 다음 방식으로 LINE 사용자에게 답장할 수 있습니다：
 | `LINE_CHANNEL_ACCESS_TOKEN` | LINE Channel Access Token | **필수** |
 | `LINE_CHANNEL_SECRET` | LINE Channel Secret | **필수** |
 | `LINE_WEBHOOK_PORT` | Webhook 서버 포트 | `8789` |
-| `GDRIVE_FOLDER_ID` | 이미지 백업용 Google Drive 폴더 ID（`webhook-service.ts`에서 설정） | — |
 
 ---
 

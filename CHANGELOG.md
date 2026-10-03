@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.0] - 2026-10-03
+
+### Changed
+- **Credentials via plugin settings**: When installed as a plugin, the Channel Access Token and Channel Secret are now requested through `userConfig` (marked sensitive, stored in the system credential store) and passed to the MCP server as environment variables. `~/.claude/channels/line/.env` remains as a fallback for manual installs and `webhook-service.ts`.
+- Added `author` and `icon` to the plugin manifest.
+
+### Removed
+- **Google Drive image backup**: Removed from `webhook-service.ts`. It read OAuth credentials belonging to another tool from the user's machine and used a hard-coded folder ID. Image messages are now ignored, as before 0.2.0.
+
 ## [0.2.0] - 2026-04-06
 
 ### Added

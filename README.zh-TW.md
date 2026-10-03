@@ -26,7 +26,6 @@
 - [新增其他使用者](#新增其他使用者)
 - [Access Policy 說明](#access-policy-說明)
 - [支援的訊息類型](#支援的訊息類型)
-- [圖片自動備份到 Google Drive](#圖片自動備份到-google-drive)
 - [環境變數](#環境變數)
 - [常見問題](#常見問題)
 
@@ -134,6 +133,8 @@ cd claude-channel-line
 ---
 
 ### 2. 儲存 LINE 憑證
+
+> **以 Claude Code plugin 安裝？** 可跳過這步。啟用 plugin 時 Claude Code 會詢問 Channel Access Token 與 Channel Secret，並存進系統的安全認證儲存區。下方的 `.env` 只有手動安裝（`claude mcp add`）和常駐的 `webhook-service.ts` 才需要。
 
 憑證存放在 `~/.claude/channels/line/.env`，**不會** 被 commit 進 git。
 
@@ -402,33 +403,6 @@ Claude 可以用以下方式回覆 LINE 使用者：
 
 ---
 
-## 圖片自動備份到 Google Drive
-
-當使用者透過 LINE 傳送圖片時，`webhook-service.ts` 會自動下載並上傳至 Google Drive 作為備份。每張圖片以時間戳命名（`LINE_YYYYMMDD_HHMMSS.jpg`），使用者會收到確認訊息及 Drive 連結。
-
-### 設定方式
-
-1. **Google OAuth2 憑證**：將憑證檔案放在：
-
-   ```
-   ~/.google_workspace_mcp/credentials/<你的email>.json
-   ```
-
-   檔案中需包含有效的 `refresh_token`、`client_id` 及 `client_secret`。
-
-2. **設定目標資料夾**：在 `webhook-service.ts` 中設定 `GDRIVE_FOLDER_ID` 常數，指定圖片上傳的 Google Drive 資料夾 ID。
-
-   > 資料夾 ID 可從 Google Drive 網址取得：`https://drive.google.com/drive/folders/<FOLDER_ID>`
-
-### 運作流程
-
-1. 使用者在 LINE 對話中傳送圖片
-2. `webhook-service.ts` 透過 LINE Content API 下載圖片
-3. 圖片上傳至指定的 Google Drive 資料夾
-4. 使用者收到 LINE 回覆，確認備份完成並附上 Google Drive 檔案連結
-
----
-
 ## 環境變數
 
 | 變數 | 說明 | 預設值 |
@@ -436,7 +410,6 @@ Claude 可以用以下方式回覆 LINE 使用者：
 | `LINE_CHANNEL_ACCESS_TOKEN` | LINE Channel Access Token | **必填** |
 | `LINE_CHANNEL_SECRET` | LINE Channel Secret | **必填** |
 | `LINE_WEBHOOK_PORT` | Webhook 監聽 port | `8789` |
-| `GDRIVE_FOLDER_ID` | 圖片備份的 Google Drive 資料夾 ID（在 `webhook-service.ts` 中設定） | — |
 
 ---
 

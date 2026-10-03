@@ -26,7 +26,6 @@ LINE Messaging API を通じて LINE メッセージを Claude Code セッショ
 - [ユーザーの追加](#ユーザーの追加)
 - [アクセスポリシー](#アクセスポリシー)
 - [送信できるメッセージタイプ](#送信できるメッセージタイプ)
-- [画像の Google Drive 自動バックアップ](#画像の-google-drive-自動バックアップ)
 - [環境変数](#環境変数)
 - [トラブルシューティング](#トラブルシューティング)
 
@@ -134,6 +133,8 @@ cd claude-channel-line
 ---
 
 ### 2. LINE 認証情報の保存
+
+> **Claude Code プラグインとしてインストールした場合**はこの手順は不要です。プラグイン有効化時に Claude Code が Channel Access Token と Channel Secret を尋ね、OS の安全な資格情報ストアに保存します。下記の `.env` は手動インストール（`claude mcp add`）と常駐の `webhook-service.ts` でのみ必要です。
 
 認証情報は `~/.claude/channels/line/.env` に保存され、git には**コミットされません**。
 
@@ -398,33 +399,6 @@ Claude は以下の方法で LINE ユーザーに返信できます：
 
 ---
 
-## 画像の Google Drive 自動バックアップ
-
-ユーザーが LINE で画像を送信すると、`webhook-service.ts` が自動的にダウンロードして Google Drive にバックアップします。各画像はタイムスタンプ付きのファイル名（`LINE_YYYYMMDD_HHMMSS.jpg`）で保存され、ユーザーには Drive リンク付きの確認メッセージが届きます。
-
-### セットアップ
-
-1. **Google OAuth2 認証情報**：認証ファイルを以下の場所に配置：
-
-   ```
-   ~/.google_workspace_mcp/credentials/<メールアドレス>.json
-   ```
-
-   ファイルには有効な `refresh_token`、`client_id`、`client_secret` が必要です。
-
-2. **保存先フォルダの設定**：`webhook-service.ts` の `GDRIVE_FOLDER_ID` 定数に、画像をアップロードする Google Drive フォルダの ID を設定します。
-
-   > フォルダ ID は Google Drive の URL から取得できます：`https://drive.google.com/drive/folders/<FOLDER_ID>`
-
-### 動作の流れ
-
-1. ユーザーが LINE チャットで画像を送信
-2. `webhook-service.ts` が LINE Content API から画像をダウンロード
-3. 指定された Google Drive フォルダに画像をアップロード
-4. ユーザーに Google Drive ファイルへの直リンク付き確認メッセージを LINE で返信
-
----
-
 ## 環境変数
 
 | 変数名 | 説明 | デフォルト |
@@ -432,7 +406,6 @@ Claude は以下の方法で LINE ユーザーに返信できます：
 | `LINE_CHANNEL_ACCESS_TOKEN` | LINE Channel Access Token | **必須** |
 | `LINE_CHANNEL_SECRET` | LINE Channel Secret | **必須** |
 | `LINE_WEBHOOK_PORT` | Webhook サーバーのポート | `8789` |
-| `GDRIVE_FOLDER_ID` | 画像バックアップ先の Google Drive フォルダ ID（`webhook-service.ts` で設定） | — |
 
 ---
 
